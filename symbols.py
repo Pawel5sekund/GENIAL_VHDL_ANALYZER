@@ -74,6 +74,8 @@ _ENTITY_OBJECTS = re.compile(
         [
             r"^\s*(?P<port>[\w\s,]+)\s*:\s*(in|out|inout|buffer|linkage)\s+\w+",
             r"^\s*(?P<generic>[\w\s,]+)\s*:\s*\w+",
+            r"^\s*entity\s+(?P<entity_start>\w+)\s+is\b",
+            r"^\s*end entity\s+(?P<entity_end>[\w,\s]+)\s*;",
         ]
     ),
     flags=re.I,
@@ -82,10 +84,12 @@ _ENTITY_OBJECTS = re.compile(
 _ARCH_OBJECTS = re.compile(
     "|".join(
         [
+            r"^\s*architecture\s+(?P<architecture_start>\w+)\s+of\s+(?P<arch_entity>\w+)",
             r"^\s*constant\s+(?P<constant>[\w\s,]+)\s*:",
             r"^\s*signal\s+(?P<signal>[\w,\s]+)\s*:",
             r"^\s*type\s+(?P<type>\w+)\s*:",
             r"^\s*shared\s+variable\s+(?P<shared_variable>[\w\s,]+)\s*:",
+            r"^\s*end architecture\s+(?P<architecture_end>[\w\s,]+)\s*;",
         ]
     ),
     flags=re.I,
@@ -169,7 +173,12 @@ def _findSymbols(lines):
                 for submatch in re.finditer(r"(\w+)", value):
                     # Need to decrement the last index because we have a group that
                     # catches the port type (in, out, inout, etc)
+
                     name = submatch.group(submatch.lastindex)
+
+                    #if (key == "architecture_start"):
+                    #    name = name+"_start"; 
+
                     yield name, {
                         "lnum": lnum,
                         "start": start + submatch.start(submatch.lastindex),
@@ -288,7 +297,8 @@ def _findGroupedSymbols(lines):
             matches += _ARCH_OBJECTS(line)
             arch_name = area_name
             entity_name = over_area_name
-
+        
+        
         for match in matches:
             for key, value in match.groupdict().items():
                 if value is None:
@@ -306,7 +316,8 @@ def _findGroupedSymbols(lines):
                     # Need to decrement the last index because we have a group that
                     # catches the port type (in, out, inout, etc)
                     name = submatch.group(submatch.lastindex)
-                    yield name, {
+                    yield {
+                        "name": name,
                         "lnum": lnum,
                         "start": start + submatch.start(submatch.lastindex),
                         "end": end + submatch.start(submatch.lastindex),
@@ -323,12 +334,13 @@ def _findGroupedSymbols(lines):
             break
 
 def _getGroupedSymbolsFromText(lines):
-    objects = {}
-    for name, info in _findGroupedSymbols(lines):
-        if name not in objects:
-            objects[name] = info
+    objects = []
+    for info in _findGroupedSymbols(lines):
+        #if name not in objects:
+            objects.append(info)
 
     return objects
+
 
 def getSymbols(lines) -> List[DocumentSymbol]:
 
@@ -338,7 +350,7 @@ def getSymbols(lines) -> List[DocumentSymbol]:
     objects_nested = {}
 
     for _object in objects: #going through every object
-        obj_dict = objects[_object] #getting dictionary by name/key value
+        obj_dict = _object #getting dictionary by name/key value
         if not (obj_dict["entity"] in objects_nested.keys()): #looking for the name of entity
             objects_nested[obj_dict["entity"]] = {"values": {},"elements":{}} #when the entity is not on the list - create dictionary key with entity name
             objects_nested[obj_dict["entity"]]["elements"]["ports"] = {} #special subsectors for ports and generics
@@ -347,11 +359,11 @@ def getSymbols(lines) -> List[DocumentSymbol]:
             objects_nested[obj_dict["entity"]]["elements"][obj_dict["architecture"]] = {"values":{},"elements":{}}
         
         if obj_dict["type"] == "signal": #put the specified data types inside specified nested locations 
-            objects_nested[obj_dict["entity"]]["elements"][obj_dict["architecture"]]["elements"][_object] = obj_dict 
+            objects_nested[obj_dict["entity"]]["elements"][obj_dict["architecture"]]["elements"][_object["name"]] = obj_dict 
         if obj_dict["type"] == "port":
-            objects_nested[obj_dict["entity"]]["elements"]["ports"][_object] = obj_dict
+            objects_nested[obj_dict["entity"]]["elements"]["ports"][_object["name"]] = obj_dict
         if obj_dict["type"] == "generic":
-            objects_nested[obj_dict["entity"]]["elements"]["generics"][_object] = obj_dict
+            objects_nested[obj_dict["entity"]]["elements"]["generics"][_object["name"]] = obj_dict
 
     grouped_symbols = []
 
@@ -462,8 +474,10 @@ def getSymbols(lines) -> List[DocumentSymbol]:
             )
             grouped_symbols.append(symbol_entity)
 
-#    f = open("/home/pawel5sekund/objects.txt", "w")
-#    f.write(json.dumps(objects_nested))
-#    f.close()
+    f = open("/home/pawel5sekund/objects.txt", "w")
+    for _object in objects:
+        f.write(json.dumps(_object))
+        f.write("\r\n")
+    f.close()
 
     return grouped_symbols
