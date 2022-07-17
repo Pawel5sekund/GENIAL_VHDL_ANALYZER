@@ -85,10 +85,11 @@ from .symbols import getSymbols
 _logger = logging.getLogger(__name__)
 
 AUTO_PROJECT_FILE_NAME = "project.json"
-LINT_DEBOUNCE_S = 0.5  # 500 ms
+LINT_DEBOUNCE_S = 1.0  # 500 ms
+SYMBOL_DEBOUNCE_S = 1.0
 
 URI = str
-
+SymbolsGrouped = []
 
 def _translateSeverity(severity: DiagType) -> DiagnosticSeverity:
     """
@@ -267,6 +268,10 @@ class HdlCheckerLanguageServer(LanguageServer):
             path = p.join(self.workspace.root_path, path)
 
         return path
+
+    @debounce(SYMBOL_DEBOUNCE_S, keyed_by="lines")
+    def _debouncedGetSymbols(lines) -> List[DocumentSymbol]:
+        return getSymbols(lines)
 
     @debounce(LINT_DEBOUNCE_S, keyed_by="uri")
     def lint(self, uri: URI, is_saved: bool) -> None:
@@ -560,16 +565,27 @@ def setupLanguageServerFeatures(server: HdlCheckerLanguageServer) -> None:
     def didSave(self: HdlCheckerLanguageServer, params: DidSaveTextDocumentParams):
         """Text document did change notification."""
         self.lint(params.textDocument.uri, True)
+        path = Path(to_fs_path(params.textDocument.uri))
+        lines = tuple(open(path.name).read().split("\n"))
+        SymbolsGrouped = _debouncedGetSymbols(lines)
 
     @server.feature(TEXT_DOCUMENT_DID_CHANGE)
     def didChange(self: HdlCheckerLanguageServer, params: DidChangeTextDocumentParams):
         """Text document did change notification."""
         self.lint(params.textDocument.uri, False)
+        path = Path(to_fs_path(params.textDocument.uri))
+        lines = tuple(open(path.name).read().split("\n"))
+        SymbolsGrouped = _debouncedGetSymbols(lines)
+
 
     @server.feature(TEXT_DOCUMENT_DID_OPEN)
     def didOpen(self: HdlCheckerLanguageServer, params: DidOpenTextDocumentParams):
         """Text document did change notification."""
         self.lint(params.textDocument.uri, True)
+        path = Path(to_fs_path(params.textDocument.uri))
+        lines = tuple(open(path.name).read().split("\n"))
+        SymbolsGrouped = _debouncedGetSymbols(lines)
+
 
     @server.feature(WORKSPACE_DID_CHANGE_CONFIGURATION)
     def didChangeConfiguration(
@@ -598,6 +614,7 @@ def setupLanguageServerFeatures(server: HdlCheckerLanguageServer) -> None:
     ) -> Optional[Union[List[DocumentSymbol], List[SymbolInformation]]]:
         path = Path(to_fs_path(params.textDocument.uri))
         lines = tuple(open(path.name).read().split("\n"))
-        return getSymbols(lines)
+        SymbolsGrouped = getSymbols(lines)
+        return SymbolsGrouped
 
     # pylint: enable=unused-variable
