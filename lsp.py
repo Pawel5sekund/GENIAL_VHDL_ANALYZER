@@ -90,6 +90,7 @@ SYMBOL_DEBOUNCE_S = 1.0
 
 URI = str
 SymbolsGrouped = []
+ObjectsSorted = {}
 
 def _translateSeverity(severity: DiagType) -> DiagnosticSeverity:
     """
@@ -567,7 +568,7 @@ def setupLanguageServerFeatures(server: HdlCheckerLanguageServer) -> None:
         self.lint(params.textDocument.uri, True)
         path = Path(to_fs_path(params.textDocument.uri))
         lines = tuple(open(path.name).read().split("\n"))
-        SymbolsGrouped = _debouncedGetSymbols(lines)
+        SymbolsGrouped, ObjectsSorted = _debouncedGetSymbols(lines)
 
     @server.feature(TEXT_DOCUMENT_DID_CHANGE)
     def didChange(self: HdlCheckerLanguageServer, params: DidChangeTextDocumentParams):
@@ -575,7 +576,7 @@ def setupLanguageServerFeatures(server: HdlCheckerLanguageServer) -> None:
         self.lint(params.textDocument.uri, False)
         path = Path(to_fs_path(params.textDocument.uri))
         lines = tuple(open(path.name).read().split("\n"))
-        SymbolsGrouped = _debouncedGetSymbols(lines)
+        SymbolsGrouped, ObjectsSorted = _debouncedGetSymbols(lines)
 
 
     @server.feature(TEXT_DOCUMENT_DID_OPEN)
@@ -584,7 +585,7 @@ def setupLanguageServerFeatures(server: HdlCheckerLanguageServer) -> None:
         self.lint(params.textDocument.uri, True)
         path = Path(to_fs_path(params.textDocument.uri))
         lines = tuple(open(path.name).read().split("\n"))
-        SymbolsGrouped = _debouncedGetSymbols(lines)
+        SymbolsGrouped, ObjectsSorted = _debouncedGetSymbols(lines)
 
 
     @server.feature(WORKSPACE_DID_CHANGE_CONFIGURATION)
@@ -614,7 +615,7 @@ def setupLanguageServerFeatures(server: HdlCheckerLanguageServer) -> None:
     ) -> Optional[Union[List[DocumentSymbol], List[SymbolInformation]]]:
         path = Path(to_fs_path(params.textDocument.uri))
         lines = tuple(open(path.name).read().split("\n"))
-        SymbolsGrouped = getSymbols(lines)
+        SymbolsGrouped, ObjectsSorted = getSymbols(lines)
         return SymbolsGrouped
 
     # pylint: enable=unused-variable

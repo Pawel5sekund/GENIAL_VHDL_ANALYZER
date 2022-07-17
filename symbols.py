@@ -84,11 +84,11 @@ _ENTITY_OBJECTS = re.compile(
 _ARCH_OBJECTS = re.compile(
     "|".join(
         [
-            r"^\s*architecture\s+(?P<architecture_start>\w+)\s+of\s+(?P<arch_entity>\w+)",
             r"^\s*constant\s+(?P<constant>[\w\s,]+)\s*:",
             r"^\s*signal\s+(?P<signal>[\w,\s]+)\s*:",
             r"^\s*type\s+(?P<type>\w+)\s*:",
             r"^\s*shared\s+variable\s+(?P<shared_variable>[\w\s,]+)\s*:",
+            r"^\s*architecture\s+(?P<architecture_start>\w+)\s+of\b",
             r"^\s*end architecture\s+(?P<architecture_end>[\w\s,]+)\s*;",
         ]
     ),
@@ -322,9 +322,6 @@ def _findGroupedSymbols(lines):
                         "start": start + submatch.start(submatch.lastindex),
                         "end": end + submatch.start(submatch.lastindex),
                         "type": key,
-                        "area_name": area_name,
-                        "area_type": area,
-                        "over_area_name": over_area_name,
                         "architecture": arch_name,
                         "entity": entity_name,
                         "library": "",
@@ -364,6 +361,14 @@ def getSymbols(lines) -> List[DocumentSymbol]:
             objects_nested[obj_dict["entity"]]["elements"]["ports"][_object["name"]] = obj_dict
         if obj_dict["type"] == "generic":
             objects_nested[obj_dict["entity"]]["elements"]["generics"][_object["name"]] = obj_dict
+        if obj_dict["type"] == "entity_start":
+            objects_nested[obj_dict["entity"]]["values"]["start"] = obj_dict
+        if obj_dict["type"] == "entity_end":
+            objects_nested[obj_dict["entity"]]["values"]["end"] = obj_dict
+        if obj_dict["type"] == "architecture_start":
+            objects_nested[obj_dict["entity"]]["elements"][obj_dict["architecture"]]["values"]["start"] = obj_dict
+        if obj_dict["type"] == "architecture_end":
+            objects_nested[obj_dict["entity"]]["elements"][obj_dict["architecture"]]["values"]["end"] = obj_dict
 
     grouped_symbols = []
 
@@ -371,7 +376,7 @@ def getSymbols(lines) -> List[DocumentSymbol]:
     arch_symbols = []
     port_symbols = []
     generic_symbols = []
-    for _entities in objects_nested:
+    for _entities in objects_nested:    
         entity_symbols = [] #cleaning before new entity analyze
         arch_symbols = []
         port_symbols = []
@@ -380,6 +385,8 @@ def getSymbols(lines) -> List[DocumentSymbol]:
             continue
         _entity = objects_nested[_entities]
         for _arches in _entity["elements"]: #go through every element/key of dictionary
+            if(_arches == ""):
+                continue
             _arch = _entity["elements"][_arches] #select the element from dictionary
             if _arches == "ports": #specified group for ports in entity (because eentity can have move than one architecture, but only one generic and port definition)
                 for _ports in _arch:
@@ -433,8 +440,6 @@ def getSymbols(lines) -> List[DocumentSymbol]:
                 )
                 #entity_symbols.append(symbol_generic)
                 entity_symbols.extend(generic_symbols)
-            elif _arches == "":
-                empty = 1
             else:
                 for _signals in _arch["elements"]:
                     _signal = _arch["elements"][_signals]
@@ -450,34 +455,41 @@ def getSymbols(lines) -> List[DocumentSymbol]:
                     )
                     arch_symbols.append(symbol_signal)
                 
+                if(_arch["values"]["start"]["lnum"] == "" or _arch["values"]["end"]["lnum"] == "" or _arch["values"]["end"]["end"] == ""):
+                    continue #looking for only properly formatted
+
                 symbol_arch = DocumentSymbol(
                 name=_arches,
                 kind=SymbolKind.Method,
-                range=Range(Position(0, 0),
-                    Position(0, 0),),
-                selection_range=Range(Position(0, 0),
-                    Position(0, 0),),
+                range=Range(Position(_arch["values"]["start"]["lnum"], 0),
+                            Position(_arch["values"]["end"]["lnum"], _arch["values"]["end"]["end"]),),
+                selection_range=Range(Position(_arch["values"]["start"]["lnum"], 0),
+                            Position(_arch["values"]["end"]["lnum"], _arch["values"]["end"]["end"]),),
                 detail="ARCHITECTURE",
                 children=arch_symbols,
                 )
                 entity_symbols.append(symbol_arch)
-        if not (_entities == ""):
-            symbol_entity = DocumentSymbol(
+        
+        if(_entity["values"]["start"]["lnum"] == "" or _entity["values"]["end"]["lnum"] == "" or _entity["values"]["end"]["end"] == ""):
+            continue #looking for only properly formatted
+        
+        symbol_entity = DocumentSymbol(
             name=_entities,
             kind=SymbolKind.Class,
-            range=Range(Position(0, 0),
-                    Position(0, 0),),
-            selection_range=Range(Position(0, 0),
-                    Position(0, 0),),
+            range=Range(Position(_entity["values"]["start"]["lnum"], 0),
+                        Position(_entity["values"]["end"]["lnum"], _entity["values"]["end"]["end"]),),
+            selection_range=Range(Position(_entity["values"]["start"]["lnum"], 0),
+                        Position(_entity["values"]["end"]["lnum"], _entity["values"]["end"]["end"]),),
             detail="ENTITY",
             children=entity_symbols,
             )
-            grouped_symbols.append(symbol_entity)
+        grouped_symbols.append(symbol_entity)
 
     f = open("/home/pawel5sekund/objects.txt", "w")
-    for _object in objects:
+    """for _object in objects:
         f.write(json.dumps(_object))
-        f.write("\r\n")
+        f.write("\r\n")"""
+    f.write(json.dumps(objects_nested))
     f.close()
 
-    return grouped_symbols
+    return grouped_symbols, objects_nested
