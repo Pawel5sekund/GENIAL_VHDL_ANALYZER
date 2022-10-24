@@ -31,8 +31,8 @@ from hdl_checker.utils import HashableByKey
 
 # pylint: disable=useless-object-inheritance
 
-CHECKER_NAME = "HDL_Checker:"
-STATIC_CHECKER_NAME = "static"
+CHECKER_NAME = "GVA"
+STATIC_CHECKER_NAME = "/static"
 
 
 class DiagType(object):  # pylint: disable=too-few-public-methods
@@ -233,7 +233,7 @@ class StaticCheckerDiag(CheckerDiagnostic):
         ), "\r\n Static checker diags should only carry style error types"
 
         super(StaticCheckerDiag, self).__init__(
-            checker=STATIC_CHECKER_NAME,
+            checker=CHECKER_NAME+STATIC_CHECKER_NAME,
             text=text,
             severity=severity,
             filename=filename,

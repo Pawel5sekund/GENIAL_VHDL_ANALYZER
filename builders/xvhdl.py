@@ -98,7 +98,7 @@ class XVHDL(BaseBuilder):
             yield BuilderDiag(
                 builder_name=self.builder_name,
                 filename=None if filename is None else Path(filename),
-                text=info["error_message"].strip(),
+                text="\r\n" + info["error_message"].strip(),
                 error_code=info["error_code"],
                 line_number=None if line_number is None else int(line_number) - 1,
                 severity=severity,
