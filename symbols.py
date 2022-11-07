@@ -58,6 +58,7 @@ _GET_SCOPE = re.compile(
             r"^\s*end\s*process\s+(?P<process_end>[\w\s,]+)\s*;",  
             r"^\s*end\s*architecture\s+(?P<architecture_end>[\w\s,]+)\s*;",
             r"^\s*end entity\s+(?P<entity_end>[\w,\s]+)\s*;",
+            r"^\s*end\s+(?P<end_of>[\w\s,]+)\s*",
         ]
     ),
     flags=re.I,
@@ -89,6 +90,7 @@ _ARCH_OBJECTS = re.compile(
     "|".join(
         [
             r"^\s*constant\s+(?P<constant>[\w\s,]+)\s*:",
+            r"^\s*end\s+(?P<end_of>[\w\s,]+)\s*",
             r"^\s*signal\s+(?P<signal>[\w,\s]+)\s*:",
             r"^\s*type\s+(?P<type>\w+)\s*:",
             r"^\s*shared\s+variable\s+(?P<shared_variable>[\w\s,]+)\s*:",
@@ -134,6 +136,8 @@ def _getAreaFromMatch(dict_):  # pylint: disable=inconsistent-return-statements
         return "architecture_end"
     if dict_["entity_end"] is not None:
         return "entity_end"
+    if dict_["end_of"] is not None:
+        return "end_of"
 
     assert False, "Can't determine area from {}".format(dict_)  # pragma: no cover
 
@@ -235,9 +239,6 @@ def _findGroupedSymbols(lines):
         elif area == "process":
             matches += _ARCH_OBJECTS(line)
             proc_name = area_name
-            #f3 = open("/home/pawel5sekund/mmm.txt", "w")
-            #f3.write("getit")
-            #f3.close()
         elif area == "process_end":
             matches += _ARCH_OBJECTS(line)
             proc_end_bool = True
@@ -247,6 +248,16 @@ def _findGroupedSymbols(lines):
         elif area == "entity_end":
             matches += _ENTITY_OBJECTS(line)
             entity_end_bool = True
+        elif area == "end_of":
+            if proc_name != "":
+                proc_end_bool = True
+                matches += _ARCH_OBJECTS(line)
+            elif arch_name != "": 
+                arch_end_bool = True
+                matches += _ARCH_OBJECTS(line)
+            elif entity_name != "":
+                entity_end_bool = True
+                matches += _ARCH_OBJECTS(line)
 
         
         for match in matches:
@@ -265,11 +276,15 @@ def _findGroupedSymbols(lines):
                 for submatch in re.finditer(r"(\w+)", value):
                     # Need to decrement the last index because we have a group that
                     # catches the port type (in, out, inout, etc)
+
+                    if proc_end_bool and key == "end_of":
+                        key = "process_end"
+                    elif arch_end_bool and key == "end_of":
+                        key = "architecture_end"
+                    elif entity_end_bool and key == "end_of":
+                        key = "entity_end"
+                    
                     name = submatch.group(submatch.lastindex)
-                    """if name == "PID" and key != "process_end":
-                    #f3 = open("/home/pawel5sekund/mmm.txt", "w")
-                    #f3.write("getit-PID-" + " " + entity_name + " " + arch_name + " " + " " + proc_name + " " + key + " " + name)
-                    #f3.close()"""
                     yield {
                         "name": name,
                         "lnum": lnum,
@@ -303,6 +318,59 @@ def _getGroupedSymbolsFromText(lines):
 
     return objects
 
+def _symbolGeneration(name = "", properties = [], detail = "", kind = SymbolKind.Interface, child = ["default"], target = ["default"]):
+    
+    #check format
+    if name == "":
+        return
+    try:
+        isGroup = False
+
+        if(len(child) > 0):
+            if isinstance(child[0], str) == False:
+                isGroup = True
+        elif (len(child) == 0):
+            isGroup = True
+        
+        if (isGroup == False):
+            symbol = DocumentSymbol( #create symbol, based on the data from dictionary
+            name=name,
+            kind=kind,
+            range=Range(Position(properties["lnum"], properties["start"]),
+                        Position(properties["lnum"], properties["end"]),),
+            selection_range=Range(Position(properties["lnum"], properties["start"]),
+                                Position(properties["lnum"], properties["end"]),),
+            detail=detail,
+            children=[], #no children, because ports don't have inner elements
+            )
+        else:
+            if(properties["values"]["start"]["lnum"] == "" or properties["values"]["end"]["lnum"] == "" or properties["values"]["end"]["end"] == ""):
+                return
+            symbol = DocumentSymbol(
+            name=name,
+            kind=kind,
+            range=Range(Position(properties["values"]["start"]["lnum"], 0),
+                        Position(properties["values"]["end"]["lnum"], properties["values"]["end"]["end"]),),
+            selection_range=Range(Position(properties["values"]["start"]["lnum"], 0),
+                                Position(properties["values"]["end"]["lnum"], properties["values"]["end"]["end"]),),
+            detail=detail,
+            children=child,
+            )
+        
+        target.append(symbol)
+    except:
+        print("Adding error")
+
+_empty_symbol = DocumentSymbol(
+        name="EMPTY",
+        kind=SymbolKind.Interface,
+        range=Range(Position(0, 0),
+                    Position(0, 0),),
+        selection_range=Range(Position(0, 0),
+                              Position(0, 0),),
+        detail="EMPTY",
+        children=[],
+        )
 
 def getSymbols(lines) -> List[DocumentSymbol]:
 
@@ -310,6 +378,12 @@ def getSymbols(lines) -> List[DocumentSymbol]:
     objects = _getGroupedSymbolsFromText(lines) #generating objects from every line of text
 
     objects_nested = {}
+    
+    #f = open("/home/pawel5sekund/objects.txt", "w")
+    #for _object in objects:
+    #    f.write(json.dumps(_object))
+    #    f.write("\r\n")
+    #f.close()
 
     for _object in objects: #going through every object
         obj_dict = _object #getting dictionary by name/key value
@@ -344,11 +418,10 @@ def getSymbols(lines) -> List[DocumentSymbol]:
         if obj_dict["type"] == "process_end":
             objects_nested[obj_dict["entity"]]["elements"]["architectures"][obj_dict["architecture"]]["elements"]["processes"][obj_dict["process"]]["values"]["end"] = obj_dict
 
-    """f = open("/home/pawel5sekund/objects.txt", "w")
-    for _object in objects:
-    f.write(json.dumps(_object))
-    f.write("\r\n")
-    f.close()"""
+    #f = open("/home/pawel5sekund/objects.txt", "w")
+    #f.write(json.dumps(objects_nested))
+    #f.close()
+
 
     grouped_symbols = []
 
@@ -365,61 +438,17 @@ def getSymbols(lines) -> List[DocumentSymbol]:
             continue
         _entity = objects_nested[_entities]
         for _arches in _entity["elements"]: #go through every element/key of dictionary
-            if(_arches == ""):
-                continue
             _arch = _entity["elements"][_arches] #select the element from dictionary
+
             if _arches == "ports": #specified group for ports in entity (because eentity can have move than one architecture, but only one generic and port definition)
                 for _ports in _arch:
-                    _port = _arch[_ports]
-                    symbol_port = DocumentSymbol( #create symbol, based on the data from dictionary
-                    name=_ports,
-                    kind=SymbolKind.Interface,
-                    range=Range(Position(_port["lnum"], _port["start"]),
-                        Position(_port["lnum"], _port["end"]),),
-                    selection_range=Range(Position(_port["lnum"], _port["start"]),
-                                  Position(_port["lnum"], _port["end"]),),
-                    detail="PORT",
-                    children=[], #no children, because ports don't have inner elements
-                    )
-                    port_symbols.append(symbol_port) #add port to list, which will be used as children for "PORT" section
-                symbol_port = DocumentSymbol(
-                name="PORT",
-                kind=SymbolKind.Struct,
-                range=Range(Position(0, 0), #TODO
-                    Position(0, 0),),
-                selection_range=Range(Position(0, 0),
-                    Position(0, 0),),
-                detail="",
-                children=port_symbols,
-                )
-                #entity_symbols.append(symbol_port)
-                entity_symbols.extend(port_symbols)
+                    _symbolGeneration(name = _ports, properties = _arch[_ports], detail = "PORT", kind = SymbolKind.Interface, target = entity_symbols) #add port to list, which will be used as children for "PORT" section
+
             elif _arches == "generics":
                 for _generics in _arch:
-                    _generic = _arch[_generics]
-                    symbol_generic = DocumentSymbol(
-                    name=_generics,
-                    kind=SymbolKind.Constant,
-                    range=Range(Position(_generic["lnum"], _generic["start"]),
-                        Position(_generic["lnum"], _generic["end"]),),
-                    selection_range=Range(Position(_generic["lnum"], _generic["start"]),
-                                  Position(_generic["lnum"], _generic["end"]),),
-                    detail="GENERIC",
-                    children=[],
-                    )
-                    generic_symbols.append(symbol_generic)
-                symbol_generic = DocumentSymbol(
-                name="GENERIC",
-                kind=SymbolKind.Struct,
-                range=Range(Position(0, 0),
-                    Position(0, 0),),
-                selection_range=Range(Position(0, 0),
-                    Position(0, 0),),
-                detail="",
-                children=generic_symbols,
-                )
-                #entity_symbols.append(symbol_generic)
-                entity_symbols.extend(generic_symbols)
+                    #generics generation
+                    _symbolGeneration(name = _generics, properties = _arch[_generics], detail = "GENERIC", kind = SymbolKind.Constant, target = entity_symbols)
+
             elif _arches == "architectures":
                 for _inarches in _arch:
                     _inarch = _arch[_inarches]
@@ -427,67 +456,22 @@ def getSymbols(lines) -> List[DocumentSymbol]:
                         _elinarch = _inarch["elements"][_elinarches]
                         if _elinarches == "signals":
                             for _signals in _elinarch:
-                                _signal = _elinarch[_signals]
-                                symbol_signal = DocumentSymbol(
-                                name=_signals,
-                                kind=SymbolKind.Field,
-                                range=Range(Position(_signal["lnum"], _signal["start"]),
-                                    Position(_signal["lnum"], _signal["end"]),),
-                                selection_range=Range(Position(_signal["lnum"], _signal["start"]),
-                                    Position(_signal["lnum"], _signal["end"]),),
-                                detail="SIGNAL",
-                                children=[],
-                                )
-                                arch_symbols.append(symbol_signal)
+
+                                _symbolGeneration(name = _signals, properties = _elinarch[_signals], detail = "SIGNAL", kind = SymbolKind.Field, target = arch_symbols)
+
                         if _elinarches == "processes":
                             for _processes in _elinarch:
-                                if _processes == "":
-                                    continue
-                                _process = _elinarch[_processes]
-                                symbol_process = DocumentSymbol(
-                                name=_processes,
-                                kind=SymbolKind.Field,
-                                range=Range(Position(_process["values"]["start"]["lnum"], 0),
-                                    Position(_process["values"]["end"]["lnum"], _process["values"]["end"]["end"]),),
-                                selection_range=Range(Position(_process["values"]["start"]["lnum"], 0),
-                                    Position(_process["values"]["end"]["lnum"], _process["values"]["end"]["end"]),),
-                                detail="PROCESS",
-                                children=[],
-                                )
-                                arch_symbols.append(symbol_process)
+
+                                _symbolGeneration(name = _processes, properties = _elinarch[_processes], detail = "PROCESS", kind = SymbolKind.Field, child = [_empty_symbol], target = arch_symbols)
+
                         else:
                             if(_elinarches == ""):
                                 continue #looking for only properly formatted
-                    if(_inarches == ""): 
-                        continue
-                    if(_inarch["values"]["start"]["lnum"] == "" or _inarch["values"]["end"]["lnum"] == "" or _inarch["values"]["end"]["end"] == ""):
-                        continue #looking for only properly formatted
 
-                    symbol_arch = DocumentSymbol(
-                    name=_inarches,
-                    kind=SymbolKind.Method,
-                    range=Range(Position(_inarch["values"]["start"]["lnum"], 0),
-                                Position(_inarch["values"]["end"]["lnum"], _inarch["values"]["end"]["end"]),),
-                    selection_range=Range(Position(_inarch["values"]["start"]["lnum"], 0),
-                                Position(_inarch["values"]["end"]["lnum"], _inarch["values"]["end"]["end"]),),
-                    detail="ARCHITECTURE",
-                    children=arch_symbols,
-                    )
-                    entity_symbols.append(symbol_arch)
+                    #generate architecture with childs in specific entity
+                    _symbolGeneration(name = _inarches, properties = _arch[_inarches], detail = "ARCHITECTURE", kind = SymbolKind.Method, child = arch_symbols, target = entity_symbols)
         
-        if(_entity["values"]["start"]["lnum"] == "" or _entity["values"]["end"]["lnum"] == "" or _entity["values"]["end"]["end"] == ""):
-            continue #looking for only properly formatted
-        
-        symbol_entity = DocumentSymbol(
-            name=_entities,
-            kind=SymbolKind.Class,
-            range=Range(Position(_entity["values"]["start"]["lnum"], 0),
-                        Position(_entity["values"]["end"]["lnum"], _entity["values"]["end"]["end"]),),
-            selection_range=Range(Position(_entity["values"]["start"]["lnum"], 0),
-                        Position(_entity["values"]["end"]["lnum"], _entity["values"]["end"]["end"]),),
-            detail="ENTITY",
-            children=entity_symbols,
-            )
-        grouped_symbols.append(symbol_entity)
+        #generate entity with childs in the main group of symbols
+        _symbolGeneration(name = _entities, properties = objects_nested[_entities], detail = "ENTITY", kind = SymbolKind.Class, child = entity_symbols, target = grouped_symbols)
 
     return grouped_symbols, objects_nested
